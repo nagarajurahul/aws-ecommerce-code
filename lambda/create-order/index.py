@@ -3,6 +3,10 @@ import boto3
 import uuid
 from datetime import datetime
 import os
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource("dynamodb")
 eventbridge = boto3.client("events")
@@ -32,8 +36,12 @@ def lambda_handler(event, context):
         "created_at": datetime.utcnow().isoformat()
     }
 
+    # Save order
     table.put_item(Item=order)
 
+    logger.info(f"Order created: {order_id}")
+
+    # Publish event
     eventbridge.put_events(
         Entries=[
             {
