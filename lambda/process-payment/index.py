@@ -2,6 +2,9 @@ import json
 import boto3
 import random
 from datetime import datetime
+import os
+
+EVENT_BUS = os.environ["EVENT_BUS"]
 
 eventbridge = boto3.client("events")
 
@@ -28,7 +31,7 @@ def lambda_handler(event, context):
                     "status": payment_status,
                     "processed_at": datetime.utcnow().isoformat()
                 }),
-                "EventBusName": "default"
+                "EventBusName": EVENT_BUS
             }
         ]
     )
