@@ -2,11 +2,15 @@ import json
 import boto3
 import uuid
 from datetime import datetime
+import os
 
 dynamodb = boto3.resource("dynamodb")
 eventbridge = boto3.client("events")
 
-table = dynamodb.Table("orders")
+TABLE_NAME = os.environ["ORDERS_TABLE"]
+EVENT_BUS = os.environ["EVENT_BUS"]
+
+table = dynamodb.Table(TABLE_NAME)
 
 def lambda_handler(event, context):
 
@@ -36,7 +40,7 @@ def lambda_handler(event, context):
                 "Source": "ecommerce.orders",
                 "DetailType": "OrderPlaced",
                 "Detail": json.dumps(order),
-                "EventBusName": "default"
+                "EventBusName": EVENT_BUS
             }
         ]
     )
