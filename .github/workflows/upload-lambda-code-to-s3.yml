@@ -1,0 +1,95 @@
+name: Package and Upload Changed Lambdas
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lambda/**'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ENVIRONMENT_VARIABLE_CHECK: check
+
+jobs:
+  package-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Detect changed lambda directories
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+
+          echo "Before: $BEFORE"
+          echo "After:  $AFTER"
+
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED_DIRS=$(find lambda -mindepth 1 -maxdepth 1 -type d | sort)
+          else
+            CHANGED_DIRS=$(git diff --name-only "$BEFORE" "$AFTER" \
+              | grep '^lambda/' \
+              | awk -F/ '{print $1 "/" $2}' \
+              | sort -u || true)
+          fi
+
+          if [ -z "$CHANGED_DIRS" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No lambda directory changes detected."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "dirs<<EOF"
+            echo "$CHANGED_DIRS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Changed lambda directories:"
+          echo "$CHANGED_DIRS"
+
+      - name: Zip and upload changed lambdas
+        if: steps.changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+
+            fn_name=$(basename "$dir")
+            zip_name="${fn_name}.zip"
+            zip_path="${dir}/${zip_name}"
+
+            echo "Packaging $dir -> $zip_path"
+
+            rm -f "$zip_path"
+
+            (
+              cd "$dir"
+              zip -r "$zip_name" . -x "*.zip" "__pycache__/*" "*.pyc" ".DS_Store"
+            )
+
+            echo "Uploading $zip_path to s3://${{ secrets.S3_BUCKET }}/lambda/${fn_name}/${zip_name}"
+            aws s3 cp "$zip_path" "s3://${{ secrets.S3_BUCKET }}/lambda/${fn_name}/${zip_name}"
+          done <<< "${{ steps.changed.outputs.dirs }}"
