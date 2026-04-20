@@ -1,6 +1,6 @@
 import json
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import logging
 
@@ -15,49 +15,50 @@ dynamodb = boto3.resource("dynamodb")
 eventbridge = boto3.client("events")
 
 def lambda_handler(event, context):
+    logger.info("Inside update-inventory lambda function")
+    logger.info("Received event: %s", json.dumps(event))
 
-    # EventBridge already sends dict → no json.loads needed
-    detail = event["detail"]
+    for record in event["Records"]:
+        body = json.loads(record["body"])
+        detail = body["detail"]
 
-    order_id = detail["order_id"]
+        order_id = detail["order_id"]
+        items = detail.get("items", [])
 
-    # IMPORTANT: you need items in event → ensure previous lambda sends it
-    items = detail.get("items", [])
+        logger.info(f"Updating inventory for order {order_id}")
 
-    logger.info(f"Updating inventory for order {order_id}")
+        for item in items:
+            product_id = item["product_id"]
+            quantity = item["quantity"]
 
-    for item in items:
-        product_id = item["product_id"]
-        quantity = item["quantity"]
+            logger.info(
+                "Would update inventory for product_id=%s quantity=%s",
+                product_id,
+                quantity
+            )
 
-        # try:
-        #     inventory_table.update_item(
-        #         Key={"product_id": product_id},
-        #         UpdateExpression="SET stock = stock - :qty",
-        #         ConditionExpression="stock >= :qty",
-        #         ExpressionAttributeValues={
-        #             ":qty": quantity
-        #         }
-        #     )
+            # inventory_table.update_item(
+            #     Key={"product_id": product_id},
+            #     UpdateExpression="SET stock = stock - :qty",
+            #     ConditionExpression="stock >= :qty",
+            #     ExpressionAttributeValues={
+            #         ":qty": quantity
+            #     }
+            # )
 
-        # except Exception as e:
-        #     logger.error(f"Inventory update failed for {product_id}: {str(e)}")
-        #     raise e
-
-    # Emit next event
-    eventbridge.put_events(
-        Entries=[
-            {
-                "Source": "ecommerce.inventory",
-                "DetailType": "InventoryUpdated",
-                "Detail": json.dumps({
-                    "order_id": order_id,
-                    "updated_at": datetime.utcnow().isoformat()
-                }),
-                "EventBusName": EVENT_BUS
-            }
-        ]
-    )
+        eventbridge.put_events(
+            Entries=[
+                {
+                    "Source": "ecommerce.inventory",
+                    "DetailType": "InventoryUpdated",
+                    "Detail": json.dumps({
+                        "order_id": order_id,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }),
+                    "EventBusName": EVENT_BUS
+                }
+            ]
+        )
 
     return {
         "statusCode": 200,
